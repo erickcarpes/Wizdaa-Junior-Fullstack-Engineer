@@ -69,6 +69,177 @@ describe('Time-off request lifecycle', () => {
     expect(response.body.displayAvailable).toBe(8);
   });
 
+  it('refreshes the local balance projection from mock HCM on demand', async () => {
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/balances')
+      .send({
+        employeeId: 'emp-refresh-1',
+        locationId: 'loc-a',
+        availableDays: 12,
+      })
+      .expect(201);
+
+    const refreshResponse = await request(app.getHttpServer())
+      .post('/balances/emp-refresh-1/refresh')
+      .query({ locationId: 'loc-a' })
+      .expect(201);
+
+    expect(refreshResponse.body.employeeId).toBe('emp-refresh-1');
+    expect(refreshResponse.body.locationId).toBe('loc-a');
+    expect(refreshResponse.body.availableDays).toBe(12);
+    expect(refreshResponse.body.reservedDays).toBe(0);
+    expect(refreshResponse.body.syncStatus).toBe('IN_SYNC');
+
+    const balanceResponse = await request(app.getHttpServer())
+      .get('/balances/emp-refresh-1')
+      .query({ locationId: 'loc-a' })
+      .expect(200);
+
+    expect(balanceResponse.body.availableDays).toBe(12);
+    expect(balanceResponse.body.displayAvailable).toBe(12);
+  });
+
+  it('ingests a batch balance snapshot from HCM and creates local projections', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/hcm-sync/batch-balances')
+      .send({
+        batchId: 'batch-001',
+        snapshotAt: '2026-04-24T10:00:00.000Z',
+        balances: [
+          {
+            employeeId: 'emp-batch-1',
+            locationId: 'loc-a',
+            availableDays: 15,
+            hcmVersion: 'v1',
+          },
+          {
+            employeeId: 'emp-batch-2',
+            locationId: 'loc-b',
+            availableDays: 7,
+            hcmVersion: 'v1',
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(response.body.batchId).toBe('batch-001');
+    expect(response.body.appliedCount).toBe(2);
+    expect(response.body.ignoredCount).toBe(0);
+
+    const firstProjection = await prismaService.balanceProjection.findUniqueOrThrow(
+      {
+        where: {
+          employeeId_locationId: {
+            employeeId: 'emp-batch-1',
+            locationId: 'loc-a',
+          },
+        },
+      },
+    );
+
+    expect(firstProjection.availableDays).toBe(15);
+    expect(firstProjection.syncStatus).toBe('IN_SYNC');
+
+    const syncEvent = await prismaService.hcmSyncEvent.findFirstOrThrow({
+      where: {
+        direction: 'INBOUND',
+        eventType: 'BATCH_BALANCE_SYNC',
+      },
+    });
+
+    expect(syncEvent.status).toBe('PROCESSED');
+  });
+
+  it('ignores stale batch balance snapshots and preserves the newer local projection', async () => {
+    await request(app.getHttpServer())
+      .post('/hcm-sync/batch-balances')
+      .send({
+        batchId: 'batch-newer',
+        snapshotAt: '2026-04-24T12:00:00.000Z',
+        balances: [
+          {
+            employeeId: 'emp-stale-1',
+            locationId: 'loc-a',
+            availableDays: 20,
+            hcmVersion: 'v2',
+          },
+        ],
+      })
+      .expect(201);
+
+    const staleResponse = await request(app.getHttpServer())
+      .post('/hcm-sync/batch-balances')
+      .send({
+        batchId: 'batch-older',
+        snapshotAt: '2026-04-24T09:00:00.000Z',
+        balances: [
+          {
+            employeeId: 'emp-stale-1',
+            locationId: 'loc-a',
+            availableDays: 5,
+            hcmVersion: 'v1',
+          },
+        ],
+      })
+      .expect(201);
+
+    expect(staleResponse.body.appliedCount).toBe(0);
+    expect(staleResponse.body.ignoredCount).toBe(1);
+    expect(staleResponse.body.ignored[0].reason).toBe('STALE_SNAPSHOT');
+
+    const projection = await prismaService.balanceProjection.findUniqueOrThrow({
+      where: {
+        employeeId_locationId: {
+          employeeId: 'emp-stale-1',
+          locationId: 'loc-a',
+        },
+      },
+    });
+
+    expect(projection.availableDays).toBe(20);
+    expect(projection.lastHcmVersion).toBe('v2');
+  });
+
+  it('creates a request successfully after refreshing the local balance projection from mock HCM', async () => {
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/balances')
+      .send({
+        employeeId: 'emp-refresh-create-1',
+        locationId: 'loc-a',
+        availableDays: 8,
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/balances/emp-refresh-create-1/refresh')
+      .query({ locationId: 'loc-a' })
+      .expect(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post('/time-off-requests')
+      .send({
+        employeeId: 'emp-refresh-create-1',
+        locationId: 'loc-a',
+        daysRequested: 3,
+        startDate: '2026-05-20T00:00:00.000Z',
+        endDate: '2026-05-22T00:00:00.000Z',
+        reason: 'Vacation after refresh',
+        requestedBy: 'employee-user-refresh',
+      })
+      .expect(201);
+
+    expect(createResponse.body.status).toBe('PENDING_MANAGER_APPROVAL');
+
+    const balanceResponse = await request(app.getHttpServer())
+      .get('/balances/emp-refresh-create-1')
+      .query({ locationId: 'loc-a' })
+      .expect(200);
+
+    expect(balanceResponse.body.availableDays).toBe(8);
+    expect(balanceResponse.body.reservedDays).toBe(3);
+    expect(balanceResponse.body.displayAvailable).toBe(5);
+  });
+
   it('creates a time-off request and reserves balance locally', async () => {
     await prismaService.balanceProjection.create({
       data: {
@@ -597,6 +768,111 @@ describe('Time-off request lifecycle', () => {
     expect(eventAfterRetry.attempts).toBe(1);
     expect(eventAfterRetry.lastError).toBeNull();
     expect(eventAfterRetry.nextAttemptAt).toBeNull();
+  });
+
+  it('moves an exhausted uncertain submission to conflict review during reconciliation', async () => {
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/balances')
+      .send({
+        employeeId: 'emp-reconcile-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/submission-failures')
+      .send({
+        employeeId: 'emp-reconcile-1',
+        locationId: 'loc-a',
+        times: 3,
+        reason: 'MOCK_HCM_TEMPORARY_UNAVAILABLE',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/balances/emp-reconcile-1/refresh')
+      .query({ locationId: 'loc-a' })
+      .expect(201);
+
+    const created = await request(app.getHttpServer())
+      .post('/time-off-requests')
+      .send({
+        employeeId: 'emp-reconcile-1',
+        locationId: 'loc-a',
+        daysRequested: 2,
+        startDate: '2026-08-01T00:00:00.000Z',
+        endDate: '2026-08-02T00:00:00.000Z',
+        reason: 'Reconciliation scenario',
+        requestedBy: 'employee-user-7',
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/time-off-requests/${created.body.id}/approve`)
+      .send({
+        managerId: 'manager-6',
+      })
+      .expect(201);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await request(app.getHttpServer())
+        .post('/hcm-sync/process-pending')
+        .expect(201);
+
+      if (attempt < 2) {
+        await prismaService.hcmSyncEvent.updateMany({
+          where: {
+            timeOffRequestId: created.body.id,
+            status: 'UNCERTAIN',
+          },
+          data: {
+            nextAttemptAt: new Date(Date.now() - 1000),
+          },
+        });
+      }
+    }
+
+    const eventAfterRetries = await prismaService.hcmSyncEvent.findFirstOrThrow({
+      where: {
+        timeOffRequestId: created.body.id,
+      },
+    });
+
+    expect(eventAfterRetries.status).toBe('UNCERTAIN');
+    expect(eventAfterRetries.nextAttemptAt).toBeNull();
+
+    const reconciliationResponse = await request(app.getHttpServer())
+      .post('/reconciliation/emp-reconcile-1')
+      .query({ locationId: 'loc-a' })
+      .expect(201);
+
+    expect(reconciliationResponse.body.resolvedCount).toBe(1);
+    expect(reconciliationResponse.body.resolvedRequests[0].resolution).toBe(
+      'MOVED_TO_CONFLICT_REVIEW',
+    );
+
+    const requestAfterReconciliation =
+      await prismaService.timeOffRequest.findUniqueOrThrow({
+        where: {
+          id: created.body.id,
+        },
+      });
+
+    expect(requestAfterReconciliation.status).toBe('CONFLICT_REVIEW');
+    expect(requestAfterReconciliation.hcmSubmissionStatus).toBe('UNKNOWN');
+
+    const projectionAfterReconciliation =
+      await prismaService.balanceProjection.findUniqueOrThrow({
+        where: {
+          employeeId_locationId: {
+            employeeId: 'emp-reconcile-1',
+            locationId: 'loc-a',
+          },
+        },
+      });
+
+    expect(projectionAfterReconciliation.syncStatus).toBe('CONFLICT');
   });
 
   it('rejects approve when request is not in pending manager approval state', async () => {
