@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c8b5d7b3-6d26-4eb4-b0b7-0d317de5c9f4",
     "name": "Time-Off Service",
-    "description": "Postman collection for the current Time-Off Service implementation.\n\nImportant limitation: request creation depends on an existing local BalanceProjection row in SQLite for the same employeeId + locationId. Today there is no public HTTP endpoint to seed or refresh that local projection. Because of that, requests under the lifecycle folders assume that the local BalanceProjection was already inserted beforehand.\n\nSuggested local seed for the current phase:\n- happy flow: employeeId=emp-happy-1, locationId=loc-a, availableDays=10, reservedDays=0\n- reject flow: employeeId=emp-reject-1, locationId=loc-a, availableDays=10, reservedDays=0\n- cancel flow: employeeId=emp-cancel-1, locationId=loc-a, availableDays=10, reservedDays=0\n- hcm rejection flow: employeeId=emp-hcm-reject-1, locationId=loc-a, availableDays=10, reservedDays=0\n- retry flow: employeeId=emp-retry-1, locationId=loc-a, availableDays=10, reservedDays=0\n- insufficient local balance flow: employeeId=emp-low-1, locationId=loc-a, availableDays=1, reservedDays=0",
+    "description": "Postman collection for the current Time-Off Service implementation.\n\nCurrent correct manual flow:\n1. seed the remote mock HCM balance\n2. refresh the local BalanceProjection with POST /balances/:employeeId/refresh?locationId=...\n3. create and process the time-off request lifecycle\n\nImportant note: the create request endpoint validates and reserves against the local BalanceProjection, not directly against the mock HCM state. So the refresh step is required before creating requests from a clean database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -205,6 +205,29 @@
       "name": "Happy Path - Confirmed By HCM",
       "item": [
         {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-happy-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-happy-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Request",
           "event": [
             {
@@ -239,7 +262,7 @@
                 "time-off-requests"
               ]
             },
-            "description": "Requires local BalanceProjection for emp-happy-1 / loc-a."
+            "description": "Run the refresh step first so the local BalanceProjection exists."
           }
         },
         {
@@ -329,6 +352,29 @@
       "name": "Success - Manager Reject",
       "item": [
         {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-reject-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-reject-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Request",
           "event": [
             {
@@ -397,6 +443,29 @@
     {
       "name": "Success - Cancel Before HCM Submission",
       "item": [
+        {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-cancel-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-cancel-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          }
+        },
         {
           "name": "Create Request",
           "event": [
@@ -524,6 +593,30 @@
       "name": "Error - Insufficient Local Balance",
       "item": [
         {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-low-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-low-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          },
+          "description": "This creates the local projection from HCM. To reproduce insufficient local balance, seed the mock HCM with only 1 day first."
+        },
+        {
           "name": "Create Request Over Local Balance",
           "request": {
             "method": "POST",
@@ -546,7 +639,7 @@
                 "time-off-requests"
               ]
             },
-            "description": "Requires local BalanceProjection for emp-low-1 / loc-a with availableDays=1."
+            "description": "Run the refresh step first after seeding the mock HCM with availableDays=1."
           }
         }
       ]
@@ -554,6 +647,30 @@
     {
       "name": "Error - HCM Business Rejection",
       "item": [
+        {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-hcm-reject-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-hcm-reject-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          },
+          "description": "If you want a real HCM rejection, this refresh must happen before you lower the HCM mock balance or you must manually set a larger local balance afterward."
+        },
         {
           "name": "Create Request",
           "event": [
@@ -589,7 +706,7 @@
                 "time-off-requests"
               ]
             },
-            "description": "Requires local projection with 10 days, while mock HCM only has 1 day."
+            "description": "To force HCM rejection, local projection must still allow the request while remote HCM balance is lower at submission time."
           }
         },
         {
@@ -657,6 +774,29 @@
       "name": "Error/Recovery - Transient HCM Failure Then Retry",
       "item": [
         {
+          "name": "Refresh Local Balance Projection",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/balances/emp-retry-1/refresh?locationId=loc-a",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "balances",
+                "emp-retry-1",
+                "refresh"
+              ],
+              "query": [
+                {
+                  "key": "locationId",
+                  "value": "loc-a"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Request",
           "event": [
             {
@@ -691,7 +831,7 @@
                 "time-off-requests"
               ]
             },
-            "description": "Requires local projection with 10 days."
+            "description": "Run the refresh step first so the local BalanceProjection exists."
           }
         },
         {
