@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum BalanceSyncStatus {
+  IN_SYNC
+  STALE
+  SYNCING
+  CONFLICT
+}
+
+enum TimeOffRequestStatus {
+  PENDING_VALIDATION
+  PENDING_MANAGER_APPROVAL
+  APPROVED
+  REJECTED
+  SUBMITTED_TO_HCM
+  CONFIRMED_BY_HCM
+  FAILED_HCM_VALIDATION
+  CANCELLED
+  CONFLICT_REVIEW
+}
+
+enum HcmSubmissionStatus {
+  NOT_SUBMITTED
+  PENDING_CONFIRMATION
+  CONFIRMED
+  REJECTED
+  UNKNOWN
+}
+
+enum LedgerEntryType {
+  REQUEST_RESERVED
+  REQUEST_RELEASED
+  REQUEST_CONFIRMED
+  HCM_SNAPSHOT_REPLACED
+  MANUAL_RECONCILIATION_ADJUSTMENT
+}
+
+enum LedgerSource {
+  READYON
+  HCM_REALTIME
+  HCM_BATCH
+  SYSTEM_RECONCILIATION
+}
+
+enum HcmSyncDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum HcmSyncEventType {
+  BALANCE_REFRESH
+  TIME_OFF_SUBMISSION
+  BATCH_BALANCE_SYNC
+  RECONCILIATION_CHECK
+}
+
+enum HcmSyncEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  IGNORED_STALE
+  UNCERTAIN
+}
+
+model BalanceProjection {
+  id                String               @id @default(uuid())
+  employeeId        String
+  locationId        String
+  // saldo
+  availableDays     Float                @default(0)
+  reservedDays      Float                @default(0)
+  // status
+  syncStatus        BalanceSyncStatus    @default(STALE)
+  lastHcmVersion    String?
+  lastHcmSnapshotAt DateTime?
+  // version
+  version           Int                  @default(1)
+  // timestamps
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  // relations
+  timeOffRequests   TimeOffRequest[]
+  ledgerEntries     BalanceLedgerEntry[]
+
+  @@unique([employeeId, locationId])
+}
+
+model TimeOffRequest {
+  id                  String               @id @default(uuid())
+  employeeId          String
+  locationId          String
+  // request
+  daysRequested       Float
+  startDate           DateTime
+  endDate             DateTime
+  reason              String?
+  // status
+  status              TimeOffRequestStatus @default(PENDING_VALIDATION)
+  // approval
+  managerId           String?
+  requestedBy         String?
+  // hcm integration
+  hcmReferenceId      String?
+  hcmSubmissionStatus HcmSubmissionStatus  @default(NOT_SUBMITTED)
+  rejectionReason     String?
+  // version
+  version             Int                  @default(1)
+  // timestamps
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  balanceProjection BalanceProjection    @relation(fields: [employeeId, locationId], references: [employeeId, locationId], onDelete: Restrict)
+  ledgerEntries     BalanceLedgerEntry[]
+  syncEvents        HcmSyncEvent[]
+
+  @@index([employeeId, locationId])
+  @@index([status])
+}
+
+model BalanceLedgerEntry {
+  id               String          @id @default(uuid())
+  employeeId       String
+  locationId       String
+  timeOffRequestId String?
+  // entry
+  entryType        LedgerEntryType
+  deltaDays        Float
+  source           LedgerSource
+  // idempotency
+  idempotencyKey   String          @unique
+  // metadata
+  metadata         String?
+  // timestamps
+  occurredAt       DateTime        @default(now())
+
+  balanceProjection BalanceProjection @relation(fields: [employeeId, locationId], references: [employeeId, locationId], onDelete: Restrict)
+  timeOffRequest    TimeOffRequest?   @relation(fields: [timeOffRequestId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, locationId])
+  @@index([timeOffRequestId])
+  @@index([entryType])
+}
+
+model HcmSyncEvent {
+  id               String             @id @default(uuid())
+  timeOffRequestId String?
+  // event
+  direction        HcmSyncDirection
+  eventType        HcmSyncEventType
+  status           HcmSyncEventStatus @default(PENDING)
+  correlationId    String
+  // idempotency
+  idempotencyKey   String
+  // payload
+  payload          String
+  error            String?
+  // retry
+  attempts         Int                @default(0)
+  nextAttemptAt    DateTime?
+  lastError        String?
+  // timestamps
+  processedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  timeOffRequest TimeOffRequest? @relation(fields: [timeOffRequestId], references: [id], onDelete: SetNull)
+
+  @@unique([direction, eventType, idempotencyKey])
+  @@index([status, nextAttemptAt])
+}
