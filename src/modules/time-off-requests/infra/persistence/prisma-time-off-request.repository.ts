@@ -5,18 +5,18 @@ import {
   LedgerEntryType,
   LedgerSource,
   TimeOffRequestStatus,
-} from '@prisma/client';
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '@/infrastructure/prisma/prisma.service';
-import { BalanceProjectionNotFoundError } from '@/modules/balances/application/errors/balance-projection-not-found.error';
-import { ConcurrentBalanceUpdateError } from '@/modules/time-off-requests/domain/errors/concurrent-balance-update.error';
-import { InsufficientBalanceError } from '@/modules/time-off-requests/domain/errors/insufficient-balance.error';
+} from "@prisma/client";
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "@/infrastructure/prisma/prisma.service";
+import { BalanceProjectionNotFoundError } from "@/modules/balances/application/errors/balance-projection-not-found.error";
+import { ConcurrentBalanceUpdateError } from "@/modules/time-off-requests/domain/errors/concurrent-balance-update.error";
+import { InsufficientBalanceError } from "@/modules/time-off-requests/domain/errors/insufficient-balance.error";
 import {
   CreatePendingApprovalTimeOffRequestCommand,
   TimeOffRequestRepository,
-} from '@/modules/time-off-requests/domain/time-off-request.repository';
-import { TimeOffRequestEntity } from '@/modules/time-off-requests/domain/time-off-request.entity';
-import { TimeOffRequestMapper } from '@/modules/time-off-requests/infra/persistence/time-off-request.mapper';
+} from "@/modules/time-off-requests/domain/time-off-request.repository";
+import { TimeOffRequestEntity } from "@/modules/time-off-requests/domain/time-off-request.entity";
+import { TimeOffRequestMapper } from "@/modules/time-off-requests/infra/persistence/time-off-request.mapper";
 
 @Injectable()
 export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository {
@@ -107,7 +107,7 @@ export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository 
           idempotencyKey: `request_reserved:${createdTimeOffRequest.id}`,
           metadata: JSON.stringify({
             requestId: createdTimeOffRequest.id,
-            action: 'reserve-balance',
+            action: "reserve-balance",
           }),
         },
       });
@@ -213,7 +213,7 @@ export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository 
           idempotencyKey: `request_rejected:${timeOffRequest.id}`,
           metadata: JSON.stringify({
             requestId: timeOffRequest.id,
-            action: 'release-balance-after-manager-rejection',
+            action: "release-balance-after-manager-rejection",
             reason: timeOffRequest.rejectionReason,
           }),
         },
@@ -272,7 +272,7 @@ export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository 
           idempotencyKey: `request_cancelled:${timeOffRequest.id}`,
           metadata: JSON.stringify({
             requestId: timeOffRequest.id,
-            action: 'release-balance-after-cancellation',
+            action: "release-balance-after-cancellation",
             reason: timeOffRequest.rejectionReason,
           }),
         },
@@ -285,7 +285,7 @@ export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository 
         },
         data: {
           status: HcmSyncEventStatus.IGNORED_STALE,
-          lastError: 'Request cancelled before submission.',
+          lastError: "Request cancelled before submission.",
           processedAt: new Date(),
         },
       });

@@ -161,6 +161,19 @@ export class TimeOffRequestEntity {
     this.props.rejectionReason = reason;
   }
 
+  moveToConflictReview(reason: string) {
+    if (this.props.status !== TimeOffRequestStatus.SUBMITTED_TO_HCM) {
+      throw new CannotResolveHcmSubmissionError(
+        this.props.id,
+        this.props.status,
+      );
+    }
+
+    this.props.status = TimeOffRequestStatus.CONFLICT_REVIEW;
+    this.props.hcmSubmissionStatus = HcmSubmissionStatus.UNKNOWN;
+    this.props.rejectionReason = reason;
+  }
+
   toJSON() {
     return { ...this.props };
   }

@@ -1,5 +1,7 @@
 import {
+  HcmSyncDirection,
   HcmSyncEventStatus,
+  HcmSyncEventType,
   LedgerEntryType,
   LedgerSource,
   TimeOffRequestStatus,
@@ -18,6 +20,167 @@ export class HcmIntegrationService {
     private readonly prismaService: PrismaService,
     private readonly mockHcmService: MockHcmService,
   ) {}
+
+  async ingestBatchBalances(input: {
+    batchId: string;
+    snapshotAt: Date;
+    balances: Array<{
+      employeeId: string;
+      locationId: string;
+      availableDays: number;
+      hcmVersion?: string;
+    }>;
+  }) {
+    const existingEvent = await this.prismaService.hcmSyncEvent.findUnique({
+      where: {
+        direction_eventType_idempotencyKey: {
+          direction: HcmSyncDirection.INBOUND,
+          eventType: HcmSyncEventType.BATCH_BALANCE_SYNC,
+          idempotencyKey: `batch-balance-sync:${input.batchId}`,
+        },
+      },
+    });
+
+    if (existingEvent) {
+      return {
+        batchId: input.batchId,
+        status: 'ALREADY_PROCESSED',
+      };
+    }
+
+    return this.prismaService.$transaction(async (tx) => {
+      await tx.hcmSyncEvent.create({
+        data: {
+          direction: HcmSyncDirection.INBOUND,
+          eventType: HcmSyncEventType.BATCH_BALANCE_SYNC,
+          status: HcmSyncEventStatus.PENDING,
+          correlationId: input.batchId,
+          idempotencyKey: `batch-balance-sync:${input.batchId}`,
+          payload: JSON.stringify({
+            batchId: input.batchId,
+            snapshotAt: input.snapshotAt.toISOString(),
+            balances: input.balances,
+          }),
+        },
+      });
+
+      const applied: Array<{
+        employeeId: string;
+        locationId: string;
+        action: 'CREATED' | 'UPDATED';
+      }> = [];
+      const ignored: Array<{
+        employeeId: string;
+        locationId: string;
+        reason: 'STALE_SNAPSHOT';
+      }> = [];
+
+      for (const row of input.balances) {
+        const currentProjection = await tx.balanceProjection.findUnique({
+          where: {
+            employeeId_locationId: {
+              employeeId: row.employeeId,
+              locationId: row.locationId,
+            },
+          },
+        });
+
+        if (
+          currentProjection?.lastHcmSnapshotAt &&
+          currentProjection.lastHcmSnapshotAt > input.snapshotAt
+        ) {
+          ignored.push({
+            employeeId: row.employeeId,
+            locationId: row.locationId,
+            reason: 'STALE_SNAPSHOT',
+          });
+          continue;
+        }
+
+        const nextHcmVersion =
+          row.hcmVersion ?? `${input.batchId}:${row.employeeId}:${row.locationId}`;
+        const isUpdate = Boolean(currentProjection);
+        const availableDaysChanged =
+          currentProjection?.availableDays !== row.availableDays;
+
+        await tx.balanceProjection.upsert({
+          where: {
+            employeeId_locationId: {
+              employeeId: row.employeeId,
+              locationId: row.locationId,
+            },
+          },
+          create: {
+            employeeId: row.employeeId,
+            locationId: row.locationId,
+            availableDays: row.availableDays,
+            reservedDays: 0,
+            syncStatus: 'IN_SYNC',
+            lastHcmVersion: nextHcmVersion,
+            lastHcmSnapshotAt: input.snapshotAt,
+          },
+          update: {
+            availableDays: row.availableDays,
+            syncStatus: 'IN_SYNC',
+            lastHcmVersion: nextHcmVersion,
+            lastHcmSnapshotAt: input.snapshotAt,
+            version: {
+              increment: 1,
+            },
+          },
+        });
+
+        if (availableDaysChanged) {
+          await tx.balanceLedgerEntry.create({
+            data: {
+              employeeId: row.employeeId,
+              locationId: row.locationId,
+              entryType: LedgerEntryType.HCM_SNAPSHOT_REPLACED,
+              deltaDays:
+                row.availableDays - (currentProjection?.availableDays ?? 0),
+              source: LedgerSource.HCM_BATCH,
+              idempotencyKey: `hcm_snapshot_replaced:${input.batchId}:${row.employeeId}:${row.locationId}`,
+              metadata: JSON.stringify({
+                batchId: input.batchId,
+                snapshotAt: input.snapshotAt.toISOString(),
+                previousAvailableDays: currentProjection?.availableDays ?? null,
+                nextAvailableDays: row.availableDays,
+              }),
+            },
+          });
+        }
+
+        applied.push({
+          employeeId: row.employeeId,
+          locationId: row.locationId,
+          action: isUpdate ? 'UPDATED' : 'CREATED',
+        });
+      }
+
+      await tx.hcmSyncEvent.update({
+        where: {
+          direction_eventType_idempotencyKey: {
+            direction: HcmSyncDirection.INBOUND,
+            eventType: HcmSyncEventType.BATCH_BALANCE_SYNC,
+            idempotencyKey: `batch-balance-sync:${input.batchId}`,
+          },
+        },
+        data: {
+          status: HcmSyncEventStatus.PROCESSED,
+          processedAt: new Date(),
+        },
+      });
+
+      return {
+        batchId: input.batchId,
+        snapshotAt: input.snapshotAt.toISOString(),
+        appliedCount: applied.length,
+        ignoredCount: ignored.length,
+        applied,
+        ignored,
+      };
+    });
+  }
 
   async refreshBalance(employeeId: string, locationId: string) {
     return {

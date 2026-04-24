@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from "@nestjs/common";
 
 type MockHcmBalance = {
   employeeId: string;
@@ -25,13 +25,31 @@ type MockHcmSubmissionFailure = {
   reason: string;
 };
 
+type MockHcmAcceptedSubmission = {
+  requestId: string;
+  employeeId: string;
+  locationId: string;
+  daysRequested: number;
+  hcmReferenceId: string;
+};
+
 @Injectable()
 export class MockHcmService {
   private readonly balances = new Map<string, MockHcmBalance>();
-  private readonly submissionFailures = new Map<string, MockHcmSubmissionFailure>();
+  private readonly submissionFailures = new Map<
+    string,
+    MockHcmSubmissionFailure
+  >();
+  private readonly acceptedSubmissions = new Map<
+    string,
+    MockHcmAcceptedSubmission
+  >();
 
   upsertBalance(balance: MockHcmBalance) {
-    this.balances.set(this.key(balance.employeeId, balance.locationId), balance);
+    this.balances.set(
+      this.key(balance.employeeId, balance.locationId),
+      balance,
+    );
 
     return balance;
   }
@@ -53,15 +71,19 @@ export class MockHcmService {
 
     this.submissionFailures.set(key, {
       remainingFailures: input.times,
-      reason: input.reason ?? 'MOCK_HCM_TEMPORARY_UNAVAILABLE',
+      reason: input.reason ?? "MOCK_HCM_TEMPORARY_UNAVAILABLE",
     });
 
     return {
       employeeId: input.employeeId,
       locationId: input.locationId,
       remainingFailures: input.times,
-      reason: input.reason ?? 'MOCK_HCM_TEMPORARY_UNAVAILABLE',
+      reason: input.reason ?? "MOCK_HCM_TEMPORARY_UNAVAILABLE",
     };
+  }
+
+  getAcceptedSubmission(requestId: string) {
+    return this.acceptedSubmissions.get(requestId) ?? null;
   }
 
   submitTimeOff(input: SubmitMockTimeOffInput) {
@@ -73,12 +95,17 @@ export class MockHcmService {
       const nextFailures = failureConfig.remainingFailures - 1;
 
       if (nextFailures === 0) {
-        this.submissionFailures.delete(this.key(input.employeeId, input.locationId));
+        this.submissionFailures.delete(
+          this.key(input.employeeId, input.locationId),
+        );
       } else {
-        this.submissionFailures.set(this.key(input.employeeId, input.locationId), {
-          ...failureConfig,
-          remainingFailures: nextFailures,
-        });
+        this.submissionFailures.set(
+          this.key(input.employeeId, input.locationId),
+          {
+            ...failureConfig,
+            remainingFailures: nextFailures,
+          },
+        );
       }
 
       throw new Error(failureConfig.reason);
@@ -89,7 +116,7 @@ export class MockHcmService {
     if (currentBalance.availableDays < input.daysRequested) {
       return {
         accepted: false as const,
-        reason: 'INSUFFICIENT_BALANCE',
+        reason: "INSUFFICIENT_BALANCE",
       };
     }
 
@@ -98,11 +125,20 @@ export class MockHcmService {
       availableDays: currentBalance.availableDays - input.daysRequested,
     };
 
+    const acceptedSubmission = {
+      requestId: input.requestId,
+      employeeId: input.employeeId,
+      locationId: input.locationId,
+      daysRequested: input.daysRequested,
+      hcmReferenceId: `mock-hcm-${input.requestId}`,
+    };
+
     this.upsertBalance(nextBalance);
+    this.acceptedSubmissions.set(input.requestId, acceptedSubmission);
 
     return {
       accepted: true as const,
-      hcmReferenceId: `mock-hcm-${input.requestId}`,
+      hcmReferenceId: acceptedSubmission.hcmReferenceId,
       balance: nextBalance,
     };
   }
@@ -110,6 +146,7 @@ export class MockHcmService {
   clear() {
     this.balances.clear();
     this.submissionFailures.clear();
+    this.acceptedSubmissions.clear();
   }
 
   private key(employeeId: string, locationId: string) {
