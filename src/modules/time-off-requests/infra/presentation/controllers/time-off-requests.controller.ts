@@ -14,6 +14,7 @@ import { ApproveTimeOffRequestUseCase } from '@/modules/time-off-requests/applic
 import { CancelTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/cancel-time-off-request.use-case';
 import { CreateTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/create-time-off-request.use-case';
 import { GetTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/get-time-off-request.use-case';
+import { GetTimeOffRequestSyncEventsUseCase } from '@/modules/time-off-requests/application/use-cases/get-time-off-request-sync-events.use-case';
 import { RejectTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/reject-time-off-request.use-case';
 import { CannotApproveTimeOffRequestError } from '@/modules/time-off-requests/domain/errors/cannot-approve-time-off-request.error';
 import { CannotCancelTimeOffRequestError } from '@/modules/time-off-requests/domain/errors/cannot-cancel-time-off-request.error';
@@ -33,6 +34,7 @@ export class TimeOffRequestsController {
     private readonly cancelTimeOffRequestUseCase: CancelTimeOffRequestUseCase,
     private readonly createTimeOffRequestUseCase: CreateTimeOffRequestUseCase,
     private readonly getTimeOffRequestUseCase: GetTimeOffRequestUseCase,
+    private readonly getTimeOffRequestSyncEventsUseCase: GetTimeOffRequestSyncEventsUseCase,
     private readonly rejectTimeOffRequestUseCase: RejectTimeOffRequestUseCase,
   ) {}
 
@@ -79,6 +81,19 @@ export class TimeOffRequestsController {
       );
 
       return timeOffRequest.toJSON();
+    } catch (error) {
+      if (error instanceof TimeOffRequestNotFoundError) {
+        throw new NotFoundException(error.message);
+      }
+
+      throw error;
+    }
+  }
+
+  @Get(':requestId/sync-events')
+  async getSyncEvents(@Param('requestId') requestId: string) {
+    try {
+      return this.getTimeOffRequestSyncEventsUseCase.execute(requestId);
     } catch (error) {
       if (error instanceof TimeOffRequestNotFoundError) {
         throw new NotFoundException(error.message);

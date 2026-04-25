@@ -6,7 +6,7 @@ import {
   LedgerSource,
   TimeOffRequestStatus,
 } from '@prisma/client';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@/infrastructure/prisma/prisma.service';
 import { MockHcmService } from '@/modules/mock-hcm/mock-hcm.service';
 import { TimeOffRequestMapper } from '@/modules/time-off-requests/infra/persistence/time-off-request.mapper';
@@ -15,6 +15,7 @@ import { TimeOffRequestMapper } from '@/modules/time-off-requests/infra/persiste
 export class HcmIntegrationService {
   private static readonly MAX_SUBMISSION_ATTEMPTS = 3;
   private static readonly RETRY_DELAY_MINUTES = 2;
+  private readonly logger = new Logger(HcmIntegrationService.name);
 
   constructor(
     private readonly prismaService: PrismaService,
@@ -31,6 +32,10 @@ export class HcmIntegrationService {
       hcmVersion?: string;
     }>;
   }) {
+    this.logger.log(
+      `ingest-batch-balances batchId=${input.batchId} rows=${input.balances.length}`,
+    );
+
     const existingEvent = await this.prismaService.hcmSyncEvent.findUnique({
       where: {
         direction_eventType_idempotencyKey: {
@@ -42,6 +47,7 @@ export class HcmIntegrationService {
     });
 
     if (existingEvent) {
+      this.logger.warn(`batch-already-processed batchId=${input.batchId}`);
       return {
         batchId: input.batchId,
         status: 'ALREADY_PROCESSED',
@@ -223,6 +229,8 @@ export class HcmIntegrationService {
 
     const processedEvents = [];
 
+    this.logger.log(`process-pending-submissions count=${pendingEvents.length}`);
+
     for (const event of pendingEvents) {
       const submissionContext = await this.prepareSubmission(event.id);
 
@@ -253,6 +261,9 @@ export class HcmIntegrationService {
           ),
         );
       } catch (error) {
+        this.logger.warn(
+          `submission-transport-failure requestId=${submissionContext.requestId}`,
+        );
         processedEvents.push(
           await this.scheduleSubmissionRetry(submissionContext, error),
         );
@@ -389,6 +400,10 @@ export class HcmIntegrationService {
     },
     reason: string,
   ) {
+    this.logger.warn(
+      `submission-rejected-by-hcm requestId=${submissionContext.requestId} reason=${reason}`,
+    );
+
     return this.prismaService.$transaction(async (tx) => {
       const requestModel = await tx.timeOffRequest.findUniqueOrThrow({
         where: {
@@ -473,6 +488,10 @@ export class HcmIntegrationService {
     hcmReferenceId: string,
     nextAvailableDays: number,
   ) {
+    this.logger.log(
+      `submission-confirmed-by-hcm requestId=${submissionContext.requestId} hcmReferenceId=${hcmReferenceId}`,
+    );
+
     return this.prismaService.$transaction(async (tx) => {
       const requestModel = await tx.timeOffRequest.findUniqueOrThrow({
         where: {

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GetBalanceLedgerUseCase } from '@/modules/balances/application/use-cases/get-balance-ledger.use-case';
 import { GetBalanceUseCase } from '@/modules/balances/application/use-cases/get-balance.use-case';
 import { RefreshBalanceUseCase } from '@/modules/balances/application/use-cases/refresh-balance.use-case';
 import { BalanceProjectionRepository } from '@/modules/balances/domain/balance-projection.repository';
@@ -10,6 +11,7 @@ import { MockHcmModule } from '@/modules/mock-hcm/mock-hcm.module';
   imports: [MockHcmModule],
   controllers: [BalancesController],
   providers: [
+    GetBalanceLedgerUseCase,
     GetBalanceUseCase,
     RefreshBalanceUseCase,
     {

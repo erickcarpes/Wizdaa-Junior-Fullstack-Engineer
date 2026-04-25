@@ -299,4 +299,15 @@ export class PrismaTimeOffRequestRepository implements TimeOffRequestRepository 
       return TimeOffRequestMapper.toDomain(refreshed);
     });
   }
+
+  async listSyncEvents(requestId: string) {
+    return this.prismaService.hcmSyncEvent.findMany({
+      where: {
+        timeOffRequestId: requestId,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }

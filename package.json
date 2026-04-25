@@ -7,6 +7,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "build": "nest build",
+    "scenario:run": "node ./scripts/run-scenarios.mjs",
     "prisma:generate": "prisma generate --schema ./prisma/schema.prisma",
     "prisma:migrate:dev": "prisma migrate dev --schema ./prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema ./prisma/schema.prisma",

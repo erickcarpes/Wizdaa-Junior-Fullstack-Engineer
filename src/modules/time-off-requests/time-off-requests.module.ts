@@ -4,6 +4,7 @@ import { ApproveTimeOffRequestUseCase } from '@/modules/time-off-requests/applic
 import { CancelTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/cancel-time-off-request.use-case';
 import { CreateTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/create-time-off-request.use-case';
 import { GetTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/get-time-off-request.use-case';
+import { GetTimeOffRequestSyncEventsUseCase } from '@/modules/time-off-requests/application/use-cases/get-time-off-request-sync-events.use-case';
 import { RejectTimeOffRequestUseCase } from '@/modules/time-off-requests/application/use-cases/reject-time-off-request.use-case';
 import { TimeOffRequestRepository } from '@/modules/time-off-requests/domain/time-off-request.repository';
 import { PrismaTimeOffRequestRepository } from '@/modules/time-off-requests/infra/persistence/prisma-time-off-request.repository';
@@ -17,6 +18,7 @@ import { TimeOffRequestsController } from '@/modules/time-off-requests/infra/pre
     CancelTimeOffRequestUseCase,
     CreateTimeOffRequestUseCase,
     GetTimeOffRequestUseCase,
+    GetTimeOffRequestSyncEventsUseCase,
     RejectTimeOffRequestUseCase,
     {
       provide: TimeOffRequestRepository,

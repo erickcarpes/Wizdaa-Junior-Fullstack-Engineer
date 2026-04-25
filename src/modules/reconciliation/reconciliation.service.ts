@@ -3,19 +3,25 @@ import {
   HcmSyncEventStatus,
   TimeOffRequestStatus,
 } from '@prisma/client';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@/infrastructure/prisma/prisma.service';
 import { MockHcmService } from '@/modules/mock-hcm/mock-hcm.service';
 import { TimeOffRequestMapper } from '@/modules/time-off-requests/infra/persistence/time-off-request.mapper';
 
 @Injectable()
 export class ReconciliationService {
+  private readonly logger = new Logger(ReconciliationService.name);
+
   constructor(
     private readonly prismaService: PrismaService,
     private readonly mockHcmService: MockHcmService,
   ) {}
 
   async reconcileEmployeeBalance(employeeId: string, locationId: string) {
+    this.logger.log(
+      `reconcile-balance employeeId=${employeeId} locationId=${locationId}`,
+    );
+
     const hcmBalance = this.mockHcmService.getBalance(employeeId, locationId);
 
     const balanceProjection = await this.prismaService.balanceProjection.upsert({
@@ -105,6 +111,9 @@ export class ReconciliationService {
         });
 
         resolvedRequests.push(resolved);
+        this.logger.log(
+          `reconciliation-confirmed requestId=${requestModel.id} employeeId=${employeeId} locationId=${locationId}`,
+        );
         continue;
       }
 
@@ -162,6 +171,9 @@ export class ReconciliationService {
         });
 
         resolvedRequests.push(resolved);
+        this.logger.warn(
+          `reconciliation-conflict-review requestId=${requestModel.id} employeeId=${employeeId} locationId=${locationId}`,
+        );
       }
     }
 

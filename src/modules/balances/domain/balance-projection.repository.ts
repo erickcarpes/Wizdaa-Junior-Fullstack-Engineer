@@ -1,3 +1,4 @@
+import { LedgerEntryType, LedgerSource } from '@prisma/client';
 import { BalanceProjectionEntity } from '@/modules/balances/domain/balance-projection.entity';
 
 export type BalanceProjectionLookup = {
@@ -13,6 +14,19 @@ export type UpsertBalanceProjectionFromHcmCommand = {
   lastHcmSnapshotAt?: Date;
 };
 
+export type BalanceLedgerEntryView = {
+  id: string;
+  employeeId: string;
+  locationId: string;
+  timeOffRequestId: string | null;
+  entryType: LedgerEntryType;
+  deltaDays: number;
+  source: LedgerSource;
+  idempotencyKey: string;
+  metadata: string | null;
+  occurredAt: Date;
+};
+
 export abstract class BalanceProjectionRepository {
   abstract findByEmployeeAndLocation(
     lookup: BalanceProjectionLookup,
@@ -21,4 +35,8 @@ export abstract class BalanceProjectionRepository {
   abstract upsertFromHcmSnapshot(
     command: UpsertBalanceProjectionFromHcmCommand,
   ): Promise<BalanceProjectionEntity>;
+
+  abstract listLedgerEntries(
+    lookup: BalanceProjectionLookup & { limit?: number },
+  ): Promise<BalanceLedgerEntryView[]>;
 }

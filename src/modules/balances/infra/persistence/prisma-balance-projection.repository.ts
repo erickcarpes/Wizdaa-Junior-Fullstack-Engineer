@@ -59,4 +59,19 @@ export class PrismaBalanceProjectionRepository
 
     return BalanceProjectionMapper.toDomain(model);
   }
+
+  async listLedgerEntries(
+    lookup: BalanceProjectionLookup & { limit?: number },
+  ) {
+    return this.prismaService.balanceLedgerEntry.findMany({
+      where: {
+        employeeId: lookup.employeeId,
+        locationId: lookup.locationId,
+      },
+      orderBy: {
+        occurredAt: 'desc',
+      },
+      take: lookup.limit ?? 50,
+    });
+  }
 }
