@@ -1,5 +1,7 @@
 # Time-Off Service
 
+**Repository:** [github.com/erickcarpes/time-off-service](https://github.com/erickcarpes/Wizdaa-Junior-Fullstack-Engineer)
+
 NestJS + Prisma + SQLite implementation of the ReadyOn time-off microservice assessment.
 
 ## Overview
@@ -58,6 +60,7 @@ Main design decisions:
 - outbound HCM mutations are tracked with `HcmSyncEvent`
 - retries do not assume timeout means failure
 - stale inbound batch snapshots are ignored
+- HTTP error translation is centralized in a global exception filter
 
 ## Main Flows
 
