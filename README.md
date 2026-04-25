@@ -157,10 +157,12 @@ npm run scenario:run -- happy-path
 
 Current e2e-driven coverage:
 
-- Statements: `90.44%`
-- Branches: `69.64%`
-- Functions: `80.68%`
-- Lines: `89.79%`
+| Metric | Coverage |
+| --- | ---: |
+| Statements | `90.44%` |
+| Branches | `69.64%` |
+| Functions | `80.68%` |
+| Lines | `89.79%` |
 
 Current suite size:
 
