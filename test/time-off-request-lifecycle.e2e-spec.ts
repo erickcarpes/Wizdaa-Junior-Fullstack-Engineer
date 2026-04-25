@@ -294,6 +294,39 @@ describe('Time-off request lifecycle', () => {
     expect(ledgerEntry.deltaDays).toBe(-2.5);
   });
 
+  it('returns balance ledger entries for an employee and location', async () => {
+    await prismaService.balanceProjection.create({
+      data: {
+        employeeId: 'emp-ledger-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+        reservedDays: 0,
+      },
+    });
+
+    const created = await request(app.getHttpServer())
+      .post('/time-off-requests')
+      .send({
+        employeeId: 'emp-ledger-1',
+        locationId: 'loc-a',
+        daysRequested: 2,
+        startDate: '2026-05-12T00:00:00.000Z',
+        endDate: '2026-05-13T00:00:00.000Z',
+        reason: 'Ledger scenario',
+        requestedBy: 'employee-ledger',
+      })
+      .expect(201);
+
+    const ledgerResponse = await request(app.getHttpServer())
+      .get('/balances/emp-ledger-1/ledger')
+      .query({ locationId: 'loc-a', limit: 10 })
+      .expect(200);
+
+    expect(Array.isArray(ledgerResponse.body)).toBe(true);
+    expect(ledgerResponse.body[0].timeOffRequestId).toBe(created.body.id);
+    expect(ledgerResponse.body[0].entryType).toBe('REQUEST_RESERVED');
+  });
+
   it('rejects invalid request payloads via DTO validation', async () => {
     const response = await request(app.getHttpServer())
       .post('/time-off-requests')
@@ -367,6 +400,52 @@ describe('Time-off request lifecycle', () => {
     expect(syncEvent.direction).toBe('OUTBOUND');
     expect(syncEvent.eventType).toBe('TIME_OFF_SUBMISSION');
     expect(syncEvent.status).toBe('PENDING');
+  });
+
+  it('returns sync events for a time-off request', async () => {
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/balances')
+      .send({
+        employeeId: 'emp-sync-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+      })
+      .expect(201);
+
+    await prismaService.balanceProjection.create({
+      data: {
+        employeeId: 'emp-sync-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+        reservedDays: 1,
+      },
+    });
+
+    const created = await prismaService.timeOffRequest.create({
+      data: {
+        employeeId: 'emp-sync-1',
+        locationId: 'loc-a',
+        daysRequested: 1,
+        startDate: new Date('2026-05-12T00:00:00.000Z'),
+        endDate: new Date('2026-05-12T00:00:00.000Z'),
+        status: 'PENDING_MANAGER_APPROVAL',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .post(`/time-off-requests/${created.id}/approve`)
+      .send({
+        managerId: 'manager-sync',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get(`/time-off-requests/${created.id}/sync-events`)
+      .expect(200);
+
+    expect(Array.isArray(response.body)).toBe(true);
+    expect(response.body[0].timeOffRequestId).toBe(created.id);
+    expect(response.body[0].eventType).toBe('TIME_OFF_SUBMISSION');
   });
 
   it('rejects a pending manager approval request and releases the reserved balance', async () => {
