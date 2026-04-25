@@ -6,6 +6,16 @@ NestJS + Prisma + SQLite implementation of the ReadyOn time-off microservice ass
 
 This service manages the lifecycle of time-off requests while keeping the HCM as the source of truth for balances.
 
+## Architectural Decision Note
+
+The submission guidelines mention JavaScript, but this service was implemented in TypeScript because it is the native development language of NestJS and provides stronger guarantees for this domain.
+
+Why this choice:
+
+- `Security & Validation`: strict DTO validation with `class-validator` and `class-transformer` helps defend the API against malformed payloads at runtime.
+- `Maintainability`: time-off balances and request state transitions benefit from explicit typing, especially around enums, status transitions, and financial-like balance integrity.
+- `Compilation`: the project compiles to JavaScript for runtime execution through `npx tsc`, so the delivered artifact still runs on Node.js while preserving a safer source-code experience.
+
 Implemented scope:
 
 - local balance projection per `employeeId + locationId`
