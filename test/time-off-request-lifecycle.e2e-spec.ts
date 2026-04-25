@@ -69,6 +69,17 @@ describe('Time-off request lifecycle', () => {
     expect(response.body.displayAvailable).toBe(8);
   });
 
+  it('returns 404 when the balance projection does not exist locally', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/balances/emp-missing-balance')
+      .query({ locationId: 'loc-a' })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Balance projection not found for employeeId=emp-missing-balance',
+    );
+  });
+
   it('refreshes the local balance projection from mock HCM on demand', async () => {
     await request(app.getHttpServer())
       .post('/mock-hcm/admin/balances')
@@ -97,6 +108,17 @@ describe('Time-off request lifecycle', () => {
 
     expect(balanceResponse.body.availableDays).toBe(12);
     expect(balanceResponse.body.displayAvailable).toBe(12);
+  });
+
+  it('returns 404 when refreshing a balance that does not exist in mock HCM', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/balances/emp-refresh-missing/refresh')
+      .query({ locationId: 'loc-a' })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Mock HCM balance not found for employeeId=emp-refresh-missing',
+    );
   });
 
   it('ingests a batch balance snapshot from HCM and creates local projections', async () => {
@@ -448,6 +470,26 @@ describe('Time-off request lifecycle', () => {
     expect(response.body[0].eventType).toBe('TIME_OFF_SUBMISSION');
   });
 
+  it('returns 404 when loading a time-off request by id that does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/time-off-requests/request-does-not-exist')
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Time-off request request-does-not-exist was not found.',
+    );
+  });
+
+  it('returns 404 when loading sync events for a request that does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/time-off-requests/request-does-not-exist/sync-events')
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Time-off request request-does-not-exist was not found.',
+    );
+  });
+
   it('rejects a pending manager approval request and releases the reserved balance', async () => {
     await prismaService.balanceProjection.create({
       data: {
@@ -492,6 +534,79 @@ describe('Time-off request lifecycle', () => {
     });
 
     expect(projection.reservedDays).toBe(0);
+  });
+
+  it('returns 404 when approving a request that does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/time-off-requests/request-does-not-exist/approve')
+      .send({
+        managerId: 'manager-404',
+      })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Time-off request request-does-not-exist was not found.',
+    );
+  });
+
+  it('returns 404 when rejecting a request that does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/time-off-requests/request-does-not-exist/reject')
+      .send({
+        reason: 'No request to reject',
+        managerId: 'manager-404',
+      })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Time-off request request-does-not-exist was not found.',
+    );
+  });
+
+  it('returns 404 when cancelling a request that does not exist', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/time-off-requests/request-does-not-exist/cancel')
+      .send({
+        reason: 'No request to cancel',
+      })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Time-off request request-does-not-exist was not found.',
+    );
+  });
+
+  it('rejects manager rejection when request is not in pending manager approval state', async () => {
+    await prismaService.balanceProjection.create({
+      data: {
+        employeeId: 'emp-reject-invalid-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+        reservedDays: 0,
+      },
+    });
+
+    const created = await prismaService.timeOffRequest.create({
+      data: {
+        employeeId: 'emp-reject-invalid-1',
+        locationId: 'loc-a',
+        daysRequested: 1,
+        startDate: new Date('2026-05-12T00:00:00.000Z'),
+        endDate: new Date('2026-05-12T00:00:00.000Z'),
+        status: 'CONFIRMED_BY_HCM',
+        hcmSubmissionStatus: 'CONFIRMED',
+      },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post(`/time-off-requests/${created.id}/reject`)
+      .send({
+        reason: 'Late manager decision',
+        managerId: 'manager-invalid',
+      })
+      .expect(409);
+
+    expect(response.body.message).toContain('cannot be rejected');
   });
 
   it('cancels an approved request, releases reservation, and invalidates pending outbound sync', async () => {
@@ -954,6 +1069,104 @@ describe('Time-off request lifecycle', () => {
     expect(projectionAfterReconciliation.syncStatus).toBe('CONFLICT');
   });
 
+  it('confirms a submitted request during reconciliation when HCM already accepted it', async () => {
+    await request(app.getHttpServer())
+      .post('/mock-hcm/admin/balances')
+      .send({
+        employeeId: 'emp-reconcile-success-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+      })
+      .expect(201);
+
+    await prismaService.balanceProjection.create({
+      data: {
+        employeeId: 'emp-reconcile-success-1',
+        locationId: 'loc-a',
+        availableDays: 10,
+        reservedDays: 2,
+        syncStatus: 'IN_SYNC',
+      },
+    });
+
+    const created = await prismaService.timeOffRequest.create({
+      data: {
+        employeeId: 'emp-reconcile-success-1',
+        locationId: 'loc-a',
+        daysRequested: 2,
+        startDate: new Date('2026-08-10T00:00:00.000Z'),
+        endDate: new Date('2026-08-11T00:00:00.000Z'),
+        status: 'SUBMITTED_TO_HCM',
+        hcmSubmissionStatus: 'PENDING_CONFIRMATION',
+        managerId: 'manager-reconcile',
+      },
+    });
+
+    await prismaService.hcmSyncEvent.create({
+      data: {
+        timeOffRequestId: created.id,
+        direction: 'OUTBOUND',
+        eventType: 'TIME_OFF_SUBMISSION',
+        status: 'UNCERTAIN',
+        correlationId: created.id,
+        idempotencyKey: `time-off-submission:${created.id}`,
+        payload: JSON.stringify({
+          requestId: created.id,
+        }),
+        attempts: 1,
+        nextAttemptAt: new Date(Date.now() + 60_000),
+        lastError: 'TEMPORARY_FAILURE',
+      },
+    });
+
+    await mockHcmService.submitTimeOff({
+      requestId: created.id,
+      employeeId: 'emp-reconcile-success-1',
+      locationId: 'loc-a',
+      daysRequested: 2,
+    });
+
+    const response = await request(app.getHttpServer())
+      .post('/reconciliation/emp-reconcile-success-1')
+      .query({ locationId: 'loc-a' })
+      .expect(201);
+
+    expect(response.body.resolvedCount).toBe(1);
+    expect(response.body.resolvedRequests[0].resolution).toBe(
+      'CONFIRMED_FROM_HCM',
+    );
+
+    const requestAfterReconciliation =
+      await prismaService.timeOffRequest.findUniqueOrThrow({
+        where: {
+          id: created.id,
+        },
+      });
+
+    expect(requestAfterReconciliation.status).toBe('CONFIRMED_BY_HCM');
+    expect(requestAfterReconciliation.hcmSubmissionStatus).toBe('CONFIRMED');
+
+    const eventAfterReconciliation =
+      await prismaService.hcmSyncEvent.findFirstOrThrow({
+        where: {
+          timeOffRequestId: created.id,
+        },
+      });
+
+    expect(eventAfterReconciliation.status).toBe('PROCESSED');
+    expect(eventAfterReconciliation.lastError).toBeNull();
+    expect(eventAfterReconciliation.nextAttemptAt).toBeNull();
+  });
+
+  it('returns zero processed events when there is no pending HCM submission to process', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/hcm-sync/process-pending')
+      .expect(201);
+
+    expect(response.body.processedCount).toBe(0);
+    expect(response.body.processedEvents).toEqual([]);
+  });
+
   it('rejects approve when request is not in pending manager approval state', async () => {
     await prismaService.balanceProjection.create({
       data: {
@@ -1015,6 +1228,58 @@ describe('Time-off request lifecycle', () => {
       .expect(409);
 
     expect(response.body.message).toContain('cannot be cancelled');
+  });
+
+  it('rejects cancel when request is already confirmed by HCM', async () => {
+    await prismaService.balanceProjection.create({
+      data: {
+        employeeId: 'emp-cancel-invalid-1',
+        locationId: 'loc-a',
+        availableDays: 7,
+        reservedDays: 0,
+      },
+    });
+
+    const created = await prismaService.timeOffRequest.create({
+      data: {
+        employeeId: 'emp-cancel-invalid-1',
+        locationId: 'loc-a',
+        daysRequested: 1,
+        startDate: new Date('2026-05-12T00:00:00.000Z'),
+        endDate: new Date('2026-05-12T00:00:00.000Z'),
+        status: 'CONFIRMED_BY_HCM',
+        hcmSubmissionStatus: 'CONFIRMED',
+        hcmReferenceId: 'mock-hcm-confirmed',
+      },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post(`/time-off-requests/${created.id}/cancel`)
+      .send({
+        reason: 'Trying to cancel confirmed leave',
+      })
+      .expect(409);
+
+    expect(response.body.message).toContain('cannot be cancelled');
+  });
+
+  it('returns 404 when creating a request without a local balance projection', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/time-off-requests')
+      .send({
+        employeeId: 'emp-missing-projection',
+        locationId: 'loc-a',
+        daysRequested: 1,
+        startDate: '2026-05-12T00:00:00.000Z',
+        endDate: '2026-05-12T00:00:00.000Z',
+        reason: 'No local projection',
+        requestedBy: 'employee-missing-projection',
+      })
+      .expect(404);
+
+    expect(response.body.message).toContain(
+      'Balance projection not found for employeeId=emp-missing-projection',
+    );
   });
 
   it('rejects a request when local available balance is insufficient', async () => {
