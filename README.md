@@ -135,6 +135,13 @@ Run e2e suite:
 npm run test:e2e
 ```
 
+The e2e suite is split by context:
+
+- `test/balances.e2e-spec.ts`
+- `test/time-off-requests.e2e-spec.ts`
+- `test/hcm-integration.e2e-spec.ts`
+- `test/reconciliation.e2e-spec.ts`
+
 Run e2e coverage:
 
 ```bash
@@ -166,17 +173,9 @@ Current e2e-driven coverage:
 
 Current suite size:
 
-- `31` end-to-end tests
+- `31` end-to-end tests across `4` focused suites
 
 ## Manual Testing
-
-Postman collection:
-
-- [docs/time-off-service.postman_collection.json](./docs/time-off-service.postman_collection.json)
-
-Implementation summary:
-
-- [docs/time-off-service-implementation-report.md](./docs/time-off-service-implementation-report.md)
 
 Scenario runner:
 
