@@ -16,6 +16,9 @@ Implemented scope:
 - inbound HCM batch balance sync
 - stale snapshot protection
 - reconciliation flow that resolves exhausted uncertain submissions into `CONFLICT_REVIEW`
+- audit endpoints for ledger history and HCM sync events
+- local test-support reset endpoint
+- terminal scenario runner for end-to-end manual execution
 - mock HCM endpoints for deterministic testing
 
 ## Stack
@@ -70,9 +73,11 @@ Main design decisions:
 Business endpoints:
 
 - `GET /balances/:employeeId?locationId=...`
+- `GET /balances/:employeeId/ledger?locationId=...&limit=...`
 - `POST /balances/:employeeId/refresh?locationId=...`
 - `POST /time-off-requests`
 - `GET /time-off-requests/:id`
+- `GET /time-off-requests/:id/sync-events`
 - `POST /time-off-requests/:id/approve`
 - `POST /time-off-requests/:id/reject`
 - `POST /time-off-requests/:id/cancel`
@@ -85,6 +90,10 @@ Mock HCM endpoints:
 - `POST /mock-hcm/admin/balances`
 - `GET /mock-hcm/balances/:employeeId?locationId=...`
 - `POST /mock-hcm/admin/submission-failures`
+
+Local test-support endpoint:
+
+- `POST /test-support/reset`
 
 ## Local Setup
 
@@ -132,18 +141,30 @@ Run e2e coverage:
 npx jest --config ./test/jest-e2e-coverage.json --coverage
 ```
 
+Run scenario runner:
+
+```bash
+npm run scenario:run
+```
+
+Run a specific scenario:
+
+```bash
+npm run scenario:run -- happy-path
+```
+
 ## Coverage
 
 Current e2e-driven coverage:
 
 - Statements: `85.95%`
-- Branches: `52.83%`
-- Functions: `77.44%`
-- Lines: `85.08%`
+- Branches: `51.78%`
+- Functions: `78.72%`
+- Lines: `85.05%`
 
 Current suite size:
 
-- `17` end-to-end tests
+- `19` end-to-end tests
 
 ## Manual Testing
 
@@ -155,16 +176,20 @@ Implementation summary:
 
 - [docs/time-off-service-implementation-report.md](./docs/time-off-service-implementation-report.md)
 
+Scenario runner:
+
+- [scripts/run-scenarios.mjs](./scripts/run-scenarios.mjs)
+
 Important manual flow note:
 
 - creating a request depends on the local `BalanceProjection`
 - when starting from a clean database, seed the mock HCM first and then call `POST /balances/:employeeId/refresh`
+- if you do not want to execute requests one by one, use `npm run scenario:run`
 
 ## Known Gaps
 
 The core domain scope is implemented, but these areas can still be improved:
 
 - richer structured logging
-- dedicated ledger read endpoints
 - broader reconciliation variants
 - additional operational tooling
