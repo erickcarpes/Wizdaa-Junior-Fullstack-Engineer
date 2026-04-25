@@ -157,14 +157,14 @@ npm run scenario:run -- happy-path
 
 Current e2e-driven coverage:
 
-- Statements: `85.95%`
-- Branches: `51.78%`
-- Functions: `78.72%`
-- Lines: `85.05%`
+- Statements: `90.44%`
+- Branches: `69.64%`
+- Functions: `80.68%`
+- Lines: `89.79%`
 
 Current suite size:
 
-- `19` end-to-end tests
+- `31` end-to-end tests
 
 ## Manual Testing
 
